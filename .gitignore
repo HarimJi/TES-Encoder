@@ -1,0 +1,11 @@
+build
+.*
+!.gitignore
+!.gitattributes
+!.gitkeep
+!.clang-format
+imgui.ini
+*.bin
+data/
+logs/
+.clang-format

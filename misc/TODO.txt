@@ -1,0 +1,1 @@
+Encoding logic seems to have been changed while reimplementing
