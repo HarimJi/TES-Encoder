@@ -3,7 +3,7 @@
 CUDA-accelerated tetrahedral encoded SDF (TES) encoder.
 
 Given an inner tetrahedral mesh — and optionally a matching outer mesh —
-the encoder builds the TES geometry and writes a `.tes` file holding the
+the encoder builds the TES geometry and writes a JSON file holding the
 nodes, faces, tetrahedra, and per-tetrahedron encoded face lists.
 
 ## Requirements
@@ -14,6 +14,7 @@ nodes, faces, tetrahedra, and per-tetrahedron encoded face lists.
   functor — older toolkits still work if you swap it back for
   `thrust::minimum`)
 - CMake 3.18+
+- Python 3.9+ (optional, for the desktop UI launcher)
 - A CUDA-capable GPU; the default target architecture is `sm_100` (Blackwell).
   Override at configure time with `-DCMAKE_CUDA_ARCHITECTURES=<arch>`
   (e.g. `75` for Turing, `86` for Ampere).
@@ -71,7 +72,7 @@ following before running it:
 ## Run
 
 ```
-tes_encoder.exe --input <inner.msh> --output <out.tes>
+tes_encoder.exe --input <inner.msh> --output <out.json>
                 [--outer <outer.msh>]
                 [--grid-quality <int>     (default 128)]
                 [--alpha <double>         (default 0.999)]
@@ -82,7 +83,7 @@ tes_encoder.exe --input <inner.msh> --output <out.tes>
 | Flag              | Required | Default | Meaning                                                  |
 | ----------------- | -------- | ------- | -------------------------------------------------------- |
 | `--input`, `-i`   | yes      | —       | Inner tetrahedral mesh (Gmsh ASCII v2.2 `.msh`)          |
-| `--output`, `-o`  | yes      | —       | Output `.tes` path (written verbatim, suffix included)   |
+| `--output`, `-o`  | yes      | —       | Output JSON path (written verbatim, suffix included)     |
 | `--outer`         | no       | none    | Outer tetrahedral mesh; common boundary nodes are merged |
 | `--grid-quality`  | no       | `128`   | Barycentric sampling quality per tetrahedron             |
 | `--alpha`         | no       | `0.999` | Tetra shrink factor toward its centroid before sampling  |
@@ -98,7 +99,7 @@ tes_encoder.exe --input <inner.msh> --output <out.tes>
 4. `Encode_With_Optimization` — Lipschitz prune + barycentric importance
    sampling on the GPU; sort faces by importance
 5. `Print_Statistics` — memory accounting
-6. `Export` — write the `.tes` file
+6. `Export` — write the JSON file
 
 ### Examples
 
@@ -107,7 +108,7 @@ Inner-only encode:
 ```powershell
 .\build\Release\tes_encoder.exe `
     --input .\example\MSH\M16_Nut_Tol_100_Inner.msh `
-    --output .\example\TES\M16_Nut_Tol_100.tes `
+    --output .\example\TES\M16_Nut_Tol_100.json `
     --grid-quality 128 `
     --alpha 0.999 `
     --epsilon 1e-6
@@ -119,7 +120,7 @@ Inner + outer encode (paired mesh):
 .\build\Release\tes_encoder.exe `
     --input .\example\MSH\M16_Bolt_Inner.msh `
     --outer .\example\MSH\M16_Bolt_Outer.msh `
-    --output .\example\TES\M16_Bolt.tes `
+    --output .\example\TES\M16_Bolt.json `
     --grid-quality 128 `
     --alpha 0.999 `
     --epsilon 1e-6
@@ -130,9 +131,21 @@ Deformable encoding (front-loads boundary-adjacent faces):
 ```powershell
 .\build\Release\tes_encoder.exe `
     --input .\example\MSH\M16_Nut_Tol_100_Inner.msh `
-    --output .\example\TES\M16_Nut_Tol_100_deformable.tes `
+    --output .\example\TES\M16_Nut_Tol_100_deformable.json `
     --deformable
 ```
+
+## Desktop UI (Python)
+
+After building the encoder, launch the optional desktop UI:
+
+```powershell
+python .\tools\tes_encoder_ui.py
+```
+
+The UI maps directly to the same CLI flags (`--input`, `--outer`,
+`--output`, `--grid-quality`, `--alpha`, `--epsilon`, `--deformable`),
+shows the generated command, and streams encoder logs while it runs.
 
 ## Project layout
 
@@ -155,4 +168,13 @@ example/
   OBJ/                   Surface OBJ exports
 misc/
   code_style.md          Project coding style
+tools/
+  tes_encoder_ui.py      Optional Tkinter desktop launcher
 ```
+
+## Acknowledgments
+
+This project bundles [JSON for Modern C++](https://github.com/nlohmann/json)
+(nlohmann/json, v3.11.3) for reading and writing the encoded TES files. It is
+distributed under the MIT License; see [THIRD_PARTY_LICENSES.md](THIRD_PARTY_LICENSES.md)
+for the full notice.

@@ -19,6 +19,8 @@
 #include <thrust/fill.h>
 #include <thrust/reduce.h>
 
+#include "json.hpp"
+
 #include "barycentric_utils.cuh"
 #include "cuda_error.cuh"
 #include "geometry_utils.cuh"
@@ -421,6 +423,90 @@ bool TES::Encode_With_Optimization(int const grid_quality, double const alpha, d
 }
 
 bool TES::Export(std::string const& file_name) {
+  using json = nlohmann::json;
+
+  // Splits the flat Encoded_Faces vector into its four per-category segments.
+  // Tetra ordering: surface inner -> inner -> surface outer -> outer.
+  std::size_t const offset_inner = Surface_Inner_Tetras.size();
+  std::size_t const offset_surface_outer = offset_inner + Inner_Tetras.size();
+  std::size_t const offset_outer = offset_surface_outer + Surface_Outer_Tetras.size();
+  std::size_t const total_tetras = offset_outer + Outer_Tetras.size();
+
+  auto nodes_to_json = [](std::vector<vector4d> const& nodes) {
+    json arr = json::array();
+    for (vector4d const& v : nodes) {
+      arr.push_back({v.x, v.y, v.z});
+    }
+    return arr;
+  };
+  auto faces_to_json = [](std::vector<iface_t> const& faces) {
+    json arr = json::array();
+    for (iface_t const& f : faces) {
+      arr.push_back({f.x, f.y, f.z});
+    }
+    return arr;
+  };
+  // Tetra index order (w, x, y, z) matches the convention used throughout TES.
+  auto tetras_to_json = [](std::vector<itetra_t> const& tetras) {
+    json arr = json::array();
+    for (itetra_t const& t : tetras) {
+      arr.push_back({t.w, t.x, t.y, t.z});
+    }
+    return arr;
+  };
+  auto encoded_sizes_to_json = [this](std::size_t begin, std::size_t end) {
+    json arr = json::array();
+    for (std::size_t i = begin; i < end; ++i) {
+      arr.push_back(i < Encoded_Faces.size() ? Encoded_Faces[i].size() : std::size_t{0});
+    }
+    return arr;
+  };
+  auto encoded_faces_to_json = [this](std::size_t begin, std::size_t end) {
+    json arr = json::array();
+    for (std::size_t i = begin; i < end; ++i) {
+      if (i < Encoded_Faces.size()) {
+        arr.push_back(Encoded_Faces[i]);
+      } else {
+        arr.push_back(json::array());
+      }
+    }
+    return arr;
+  };
+
+  json root;
+  root["num_of_surface_nodes"] = Surface_Nodes.size();
+  root["num_of_inner_nodes"] = Internal_Nodes.size();
+  root["num_of_outer_nodes"] = Outer_Nodes.size();
+  root["num_of_faces"] = Faces.size();
+  root["num_of_surface_inner_tetras"] = Surface_Inner_Tetras.size();
+  root["num_of_inner_tetras"] = Inner_Tetras.size();
+  root["num_of_surface_outer_tetras"] = Surface_Outer_Tetras.size();
+  root["num_of_outer_tetras"] = Outer_Tetras.size();
+
+  root["surface_nodes"] = nodes_to_json(Surface_Nodes);
+  root["inner_nodes"] = nodes_to_json(Internal_Nodes);
+  root["outer_nodes"] = nodes_to_json(Outer_Nodes);
+
+  root["faces"] = faces_to_json(Faces);
+
+  root["surface_inner_tetras"] = tetras_to_json(Surface_Inner_Tetras);
+  root["inner_tetras"] = tetras_to_json(Inner_Tetras);
+  root["surface_outer_tetras"] = tetras_to_json(Surface_Outer_Tetras);
+  root["outer_tetras"] = tetras_to_json(Outer_Tetras);
+
+  root["nums_of_encoded_faces_surface_inner_tetras"] = encoded_sizes_to_json(0, offset_inner);
+  root["nums_of_encoded_faces_inner_tetras"] =
+      encoded_sizes_to_json(offset_inner, offset_surface_outer);
+  root["nums_of_encoded_faces_surface_outer_tetras"] =
+      encoded_sizes_to_json(offset_surface_outer, offset_outer);
+  root["nums_of_encoded_faces_outer_tetras"] = encoded_sizes_to_json(offset_outer, total_tetras);
+
+  root["encoded_faces_surface_inner_tetras"] = encoded_faces_to_json(0, offset_inner);
+  root["encoded_faces_inner_tetras"] = encoded_faces_to_json(offset_inner, offset_surface_outer);
+  root["encoded_faces_surface_outer_tetras"] =
+      encoded_faces_to_json(offset_surface_outer, offset_outer);
+  root["encoded_faces_outer_tetras"] = encoded_faces_to_json(offset_outer, total_tetras);
+
   std::ofstream file(file_name, std::ios::out | std::ios::trunc);
   if (!file.is_open()) {
     std::cerr << "[ERROR][TES::Export] Cannot open file: " << file_name << " ("
@@ -428,63 +514,13 @@ bool TES::Export(std::string const& file_name) {
     return false;
   }
 
-  file << "# " << file_name << "\n";
+  // operator<< serializes incrementally into the stream rather than building one giant
+  // string in memory first. setw(2) requests pretty-printing with a 2-space indent.
+  file << std::setw(2) << root << "\n";
 
-  file << "# Number of surface nodes\n" << Surface_Nodes.size() << "\n";
-  file << "# Number of internal nodes\n" << Internal_Nodes.size() << "\n";
-  file << "# Number of outer nodes\n" << Outer_Nodes.size() << "\n";
-  file << "# Number of faces\n" << Faces.size() << "\n";
-  file << "# Number of surface inner tetras\n" << Surface_Inner_Tetras.size() << "\n";
-  file << "# Number of inner tetras\n" << Inner_Tetras.size() << "\n";
-  file << "# Number of surface outer tetras\n" << Surface_Outer_Tetras.size() << "\n";
-  file << "# Number of outer tetras\n" << Outer_Tetras.size() << "\n";
-
-  std::size_t total_encoded = 0;
-  std::size_t max_encoded = 0;
-  for (auto const& v : Encoded_Faces) {
-    total_encoded += v.size();
-    if (v.size() > max_encoded) {
-      max_encoded = v.size();
-    }
-  }
-  file << "# Number of encoded faces\n" << total_encoded << "\n";
-  file << "# Maximum number of encoded faces\n" << max_encoded << "\n";
-
-  file << "# Surface nodes\n";
-  for (vector4d const& v : Surface_Nodes) {
-    file << std::setprecision(17) << v.x << " " << v.y << " " << v.z << "\n";
-  }
-  file << "# Internal nodes\n";
-  for (vector4d const& v : Internal_Nodes) {
-    file << std::setprecision(17) << v.x << " " << v.y << " " << v.z << "\n";
-  }
-  file << "# Outer nodes\n";
-  for (vector4d const& v : Outer_Nodes) {
-    file << std::setprecision(17) << v.x << " " << v.y << " " << v.z << "\n";
-  }
-
-  file << "# Faces\n";
-  for (iface_t const& f : Faces) {
-    file << f.x << " " << f.y << " " << f.z << "\n";
-  }
-
-  auto write_tetras = [&file](char const* label, std::vector<itetra_t> const& tetras) {
-    file << label << "\n";
-    for (itetra_t const& t : tetras) {
-      file << t.w << " " << t.x << " " << t.y << " " << t.z << "\n";
-    }
-  };
-  write_tetras("# Surface inner tetras", Surface_Inner_Tetras);
-  write_tetras("# Inner tetras", Inner_Tetras);
-  write_tetras("# Surface outer tetras", Surface_Outer_Tetras);
-  write_tetras("# Outer tetras", Outer_Tetras);
-
-  file << "# Encoded faces\n";
-  for (std::vector<int> const& encoded : Encoded_Faces) {
-    for (int const idx : encoded) {
-      file << idx << " ";
-    }
-    file << "\n";
+  if (!file) {
+    std::cerr << "[ERROR][TES::Export] Write failed: " << file_name << "\n";
+    return false;
   }
 
   std::cout << "[DEBUG][TES::Export] Success: " << file_name << "\n";

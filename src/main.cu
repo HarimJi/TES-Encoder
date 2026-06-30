@@ -11,7 +11,7 @@ constexpr double K_DEFAULT_ALPHA = 0.999;
 constexpr double K_DEFAULT_EPSILON = 1e-6;
 
 void print_usage(char const* prog) {
-  std::cerr << "Usage: " << prog << " --input <inner.msh> --output <out.tes>\n"
+  std::cerr << "Usage: " << prog << " --input <inner.msh> --output <out.json>\n"
             << "                       [--outer <outer.msh>]\n"
             << "                       [--grid-quality <int>     (default " << K_DEFAULT_GRID_QUALITY
             << ")]\n"
